@@ -1280,6 +1280,35 @@ const GH_API='https://api.github.com/repos/'+GH_REPO+'/contents/logs/';
 const GH_RAW='https://raw.githubusercontent.com/'+GH_REPO+'/main/logs/';
 let ghToken='';
 try{ ghToken=localStorage.getItem('mordor-key')||''; }catch(e){}
+let pending=[];
+try{ pending=JSON.parse(localStorage.getItem('mordor-pending')||'[]'); }catch(e){}
+function savePending(){ try{ localStorage.setItem('mordor-pending',JSON.stringify(pending)); }catch(e){} }
+function applyPending(rows){
+  for(const op of pending){
+    const id=op.who+'-'+op.date;
+    const i=rows.findIndex(r=>r.id===id);
+    if(op.op==='up'){ const row={id,who:op.who,date:op.date,steps:op.steps}; if(i>=0) rows[i]=row; else rows.push(row); }
+    else if(i>=0) rows.splice(i,1);
+  }
+  return rows;
+}
+async function flushPending(){
+  if(!ghToken||!pending.length) return;
+  const ops=pending.slice();
+  try{
+    for(const who of ['trev','trem']){
+      const mine=ops.filter(o=>o.who===who);
+      if(!mine.length) continue;
+      await writeMap(who,m=>{ for(const o of mine){ if(o.op==='up') m[o.date]=o.steps; else delete m[o.date]; } });
+    }
+    pending=[]; savePending(); setLive(true);
+  }catch(e){}
+}
+function setNeedsKey(){
+  const el=document.getElementById('livedot');
+  if(el){ el.textContent='saving needs the race key, see below'; el.style.color='#ffd84d'; }
+  tokRow();
+}
 const STRIDE=0.78;
 let state={entries:[]};
 if(DEMO){
@@ -1322,7 +1351,7 @@ async function syncDown(force){
   if(LOCALMODE){ renderAll(false); return; }
   try{
     const [a,b]=await Promise.all([readMap('trev'),readMap('trem')]);
-    const rows=rowsFromMaps({trev:a,trem:b});
+    const rows=applyPending(rowsFromMaps({trev:a,trem:b}));
     const changed=JSON.stringify(rows)!==JSON.stringify(state.entries);
     state.entries=rows;
     try{ localStorage.setItem(LS_KEY,JSON.stringify(rows)); }catch(e){}
@@ -1356,7 +1385,7 @@ async function upsertDay(who,date,steps){
   if(i>=0) state.entries[i]=row; else state.entries.push(row);
   renderAll(true);
   if(LOCALMODE) return;
-  if(!ghToken){ tokRow(); setLive(false); return; }
+  if(!ghToken){ pending.push({op:'up',who,date,steps}); savePending(); setNeedsKey(); return; }
   try{ await writeMap(who,m=>{m[date]=steps;}); setLive(true); }catch(e){ setLive(false); }
 }
 async function removeDay(id){
@@ -1364,7 +1393,7 @@ async function removeDay(id){
   state.entries=state.entries.filter(x=>x.id!==id);
   renderAll(true);
   if(LOCALMODE||!e0) return;
-  if(!ghToken){ tokRow(); setLive(false); return; }
+  if(!ghToken){ pending.push({op:'rm',who:e0.who,date:e0.date}); savePending(); setNeedsKey(); return; }
   try{ await writeMap(e0.who,m=>{delete m[e0.date];}); setLive(true); }catch(e){ setLive(false); }
 }
 
@@ -1874,7 +1903,7 @@ initTable().then(ok=>{
   started=!!ok;
   if(ok) for(const who of ['trev','trem']) setProgress(who,dispMilesOf(who),false);
 });
-syncDown(true);
+flushPending().then(()=>syncDown(true));
 setInterval(syncDown,45000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) syncDown(); });
 document.querySelector('.hud.trev').addEventListener('click',()=>flyTo('trev'));
@@ -1890,7 +1919,8 @@ document.getElementById('toksave').addEventListener('click',()=>{
   const v=document.getElementById('tokin').value.trim();
   if(!v) return;
   ghToken=v; try{ localStorage.setItem('mordor-key',v); }catch(e){}
-  tokRow(); syncDown(true);
+  tokRow();
+  flushPending().then(()=>syncDown(true));
 });
 tokRow();
 
