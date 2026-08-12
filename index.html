@@ -1319,7 +1319,9 @@ async function syncDown(force){
     state.entries=rows;
     try{ localStorage.setItem(LS_KEY,JSON.stringify(rows)); }catch(e){}
     setLive(true);
-    if(changed||force) renderAll(true);
+    const anim=!syncDown._loaded;
+    if(changed||force) renderAll(syncDown._loaded?true:false);
+    syncDown._loaded=true;
   }catch(e){ setLive(false); }
 }
 async function writeMap(who,mutate){
@@ -1373,6 +1375,14 @@ function locationLine(mi){
   if(mi>=TOTAL_MI) return 'At the Cracks of Doom';
   let i=0; while(i<WAYPOINTS.length-1 && WAYPOINTS[i+1].mi<=mi) i++;
   return Math.round(mi-WAYPOINTS[i].mi)+' mi past '+WAYPOINTS[i].name;
+}
+
+/* display position: small real leads get a minimum visible gap on the board */
+function dispMilesOf(who){
+  const a=milesOf('trev'), b=milesOf('trem');
+  const mine=who==='trev'?a:b, other=who==='trev'?b:a;
+  if(mine<=other || mine<=0) return mine;
+  return Math.min(TOTAL_MI, other + Math.max(mine-other, 60));
 }
 
 /* ================= three.js war table ================= */
@@ -1696,7 +1706,7 @@ function resetCam(){
 }
 function setProgress(who,mi,animate){
   const tk=tokens[who]; if(!tk) return;
-  const lat = who==='trev' ? -0.24 : 0.24;
+  const lat = who==='trev' ? -0.13 : 0.13;
   const place=(m)=>{
     const p=posOfMiles(m,lat);
     tk.sprite.position.set(p.x,p.y+0.02,p.z);
@@ -1785,7 +1795,7 @@ function renderAll(animate){
   const a=milesOf('trev'), b=milesOf('trem');
   window.__leader = Math.abs(a-b)<0.5 ? null : (a>b?'trev':'trem');
   renderHUD(); renderCols(); renderHistory();
-  if(started){ for(const who of ['trev','trem']) setProgress(who,milesOf(who),animate); }
+  if(started){ for(const who of ['trev','trem']) setProgress(who,dispMilesOf(who),animate); }
 }
 function toastCrossings(who,oldMi,newMi){
   const crossed=WAYPOINTS.filter(w=>w.mi>0 && w.mi>oldMi && w.mi<=newMi);
@@ -1835,7 +1845,7 @@ document.getElementById('history').addEventListener('click',ev=>{
 renderAll(false);
 initTable().then(ok=>{
   started=!!ok;
-  if(ok) for(const who of ['trev','trem']) setProgress(who,milesOf(who),false);
+  if(ok) for(const who of ['trev','trem']) setProgress(who,dispMilesOf(who),false);
 });
 syncDown(true);
 setInterval(syncDown,45000);
