@@ -64,6 +64,13 @@
     box-shadow:0 0 30px rgba(212,168,48,.35);max-width:86%;
   }
   #toast small{display:block;color:var(--dim);font-style:italic;margin-top:3px;font-size:13px}
+  #viewtoggle{
+    position:absolute;right:12px;bottom:12px;z-index:4;
+    background:rgba(14,9,3,.82);border:1px solid #6b552f;border-radius:8px;
+    color:#d8cba8;font-family:inherit;font-size:13px;letter-spacing:1px;
+    padding:7px 14px;cursor:pointer;
+  }
+  #viewtoggle:active{transform:translateY(1px)}
   .hint{
     position:absolute;left:50%;bottom:66px;transform:translateX(-50%);z-index:2;
     color:#7a6238;font-size:12px;font-style:italic;pointer-events:none;
@@ -155,6 +162,7 @@
     <div id="banner">THE RACE BEGINS AT BAG END</div>
     <div id="toast"></div>
     <div class="hint">drag to spin the table, pinch or scroll to zoom</div>
+    <button id="viewtoggle" type="button">Dots view</button>
   </div>
 
   <section class="panel">
@@ -1437,6 +1445,19 @@ function textSprite(text,color){
   m.scale.set(2.0,0.44,1);
   return m;
 }
+let viewMode='figures';
+try{ viewMode=localStorage.getItem('mordor-view')||'figures'; }catch(e){}
+if(PARAMS.get('view')==='dots') viewMode='dots';
+if(PARAMS.get('view')==='figures') viewMode='figures';
+function applyViewMode(){
+  for(const who of ['trev','trem']){
+    const tk=tokens[who]; if(!tk) continue;
+    tk.sprite.visible=(viewMode==='figures');
+    if(tk.dot) tk.dot.visible=(viewMode==='dots');
+  }
+  const b=document.getElementById('viewtoggle');
+  if(b) b.textContent=viewMode==='figures'?'Dots view':'Figures view';
+}
 async function initTable(){
   const canvas=document.getElementById('gl');
   try{ renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true}); }
@@ -1632,12 +1653,17 @@ async function initTable(){
     scene.add(sp); tokens[who]={sprite:sp, mi:0};
     const glow=new THREE.PointLight(who==='trev'?0xd4a830:0x3f9068,0.6,1.6);
     scene.add(glow); tokens[who].glow=glow;
+    const dot=new THREE.Mesh(new THREE.SphereGeometry(0.11,18,14),
+      new THREE.MeshStandardMaterial({color:who==='trev'?0xffd84d:0x4fc08a,
+        emissive:who==='trev'?0x8a6a10:0x1d5c3c,emissiveIntensity:0.8,roughness:0.35}));
+    scene.add(dot); tokens[who].dot=dot;
   }
 
   /* progress tubes, rebuilt on update */
   for(const who of ['trev','trem']){
     progressMeshes[who]=null;
   }
+  applyViewMode();
   addEventListener('resize',resize); resize();
   (function tick(t){
     requestAnimationFrame(tick);
@@ -1657,9 +1683,9 @@ async function initTable(){
     if(window.__ring){
       const L=window.__leader, r=window.__ring;
       let tp=null;
-      if(L && tokens[L]) tp=tokens[L].sprite.position;
+      if(L && tokens[L]) tp=(viewMode==='dots'&&tokens[L].dot)?tokens[L].dot.position:tokens[L].sprite.position;
       else if(tokens.trev&&tokens.trem) tp=tokens.trev.sprite.position.clone().lerp(tokens.trem.sprite.position,0.5);
-      if(tp){ r.position.set(tp.x,tp.y+1.62+Math.sin(tt/600)*0.06,tp.z); }
+      if(tp){ const lift=viewMode==='dots'?0.42:1.62; r.position.set(tp.x,tp.y+lift+Math.sin(tt/600)*0.06,tp.z); }
       r.rotation.y=tt/900; r.rotation.x=0.35;
     }
     if(window.__embers) for(const k of window.__embers){
@@ -1710,6 +1736,7 @@ function setProgress(who,mi,animate){
   const place=(m)=>{
     const p=posOfMiles(m,lat);
     tk.sprite.position.set(p.x,p.y+0.02,p.z);
+    if(tk.dot) tk.dot.position.set(p.x,p.y+0.14,p.z);
     tk.glow.position.set(p.x,p.y+0.35,p.z);
     tk.mi=m;
     /* progress tube */
@@ -1726,7 +1753,7 @@ function setProgress(who,mi,animate){
         pts.push(p2);
       }
       const tube=new THREE.Mesh(
-        new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts),n*2,0.028,6),
+        new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts),n*2,viewMode==='dots'?0.045:0.028,6),
         new THREE.MeshBasicMaterial({color:who==='trev'?0xffd84d:0x4fc08a}));
       if(progressMeshes[who]){ scene.remove(progressMeshes[who]); progressMeshes[who].geometry.dispose(); }
       progressMeshes[who]=tube; scene.add(tube);
@@ -1853,6 +1880,12 @@ document.addEventListener('visibilitychange',()=>{ if(!document.hidden) syncDown
 document.querySelector('.hud.trev').addEventListener('click',()=>flyTo('trev'));
 document.querySelector('.hud.trem').addEventListener('click',()=>flyTo('trem'));
 document.getElementById('gl').addEventListener('dblclick',resetCam);
+document.getElementById('viewtoggle').addEventListener('click',()=>{
+  viewMode=viewMode==='figures'?'dots':'figures';
+  try{ localStorage.setItem('mordor-view',viewMode); }catch(e){}
+  applyViewMode();
+  if(started) for(const who of ['trev','trem']) setProgress(who,dispMilesOf(who),false);
+});
 document.getElementById('toksave').addEventListener('click',()=>{
   const v=document.getElementById('tokin').value.trim();
   if(!v) return;
